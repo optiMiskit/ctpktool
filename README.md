@@ -6,3 +6,4 @@ To create a .CTPK file from a folder (folder most contain .xml files generated w
   
 **Credits**  
 Normmatt - For allowing me to use code from texturipper and answering questions about the format  
+Gericom - Texture code from EveryFileExplorer (https://github.com/Gericom/EveryFileExplorer)  
