@@ -58,6 +58,12 @@ namespace ctpktool
 
         [XmlElement("HasAlpha")]
         public bool HasAlpha;
+        
+        [XmlElement("FileIndexA")]
+        public int FileIndexA = -1;
+
+        [XmlElement("FileIndexB")]
+        public int FileIndexB = -1;
 
         public Bitmap GetBitmap()
         {
@@ -149,8 +155,8 @@ namespace ctpktool
 
             if (!String.IsNullOrWhiteSpace(dir))
             {
-                if (!String.IsNullOrWhiteSpace(outputFolder))
-                    dir = Path.Combine(outputFolder, dir);
+                //if (!String.IsNullOrWhiteSpace(outputFolder))
+                //    dir = Path.Combine(outputFolder, dir);
 
                 filename = Path.Combine(dir, filename);
 
@@ -199,6 +205,7 @@ namespace ctpktool
 
                 var origbmp = Bitmap.FromFile(path);
 
+                /*
                 var pixelSize = 3;
                 var bmpPixelFormat = PixelFormat.Format24bppRgb;
                 entry.Format = (int)TextureFormat.Rgb8;
@@ -226,7 +233,53 @@ namespace ctpktool
                 entry.TextureRawData = new byte[dataSize];
                 entry.TextureSize = (uint)dataSize;
                 Array.Copy(scramble, entry.TextureRawData, dataSize);
+                 */
 
+
+                var bmpPixelFormat = PixelFormat.Format24bppRgb;
+                if (entry.Format != (uint)TextureFormat.Rgba8
+                    && entry.Format != (uint)TextureFormat.Rgb8
+                    && entry.Format != (uint)TextureFormat.Rgb565
+                    && entry.Format != (uint)TextureFormat.Rgba4
+                    && entry.Format != (uint)TextureFormat.La8
+                    && entry.Format != (uint)TextureFormat.Hilo8
+                    && entry.Format != (uint)TextureFormat.L8
+                    && entry.Format != (uint)TextureFormat.A8
+                    && entry.Format != (uint)TextureFormat.Etc1
+                    && entry.Format != (uint)TextureFormat.Etc1A4)
+                {
+                    // Set everything that isn't one of the normal formats to Rgba8
+                    entry.Format = (uint)TextureFormat.Rgba8;
+                    bmpPixelFormat = PixelFormat.Format32bppArgb;
+                    entry.HasAlpha = true;
+                }
+                else if (entry.Format == (uint)TextureFormat.Rgba8 || entry.Format == (uint)TextureFormat.Rgba4 || entry.Format == (uint)TextureFormat.La8 || entry.Format == (uint)TextureFormat.A8)
+                {
+                    bmpPixelFormat = PixelFormat.Format32bppArgb;
+                    entry.HasAlpha = true;
+                }
+                else if (entry.Format == (uint)TextureFormat.Etc1A4)
+                {
+                    bmpPixelFormat = PixelFormat.Format32bppArgb;
+                    entry.HasAlpha = true;
+                }
+                else
+                {
+                    bmpPixelFormat = PixelFormat.Format24bppRgb;
+                    entry.HasAlpha = false;
+                }
+
+                var bmp = new Bitmap(origbmp.Width, origbmp.Height, bmpPixelFormat);
+                using (Graphics gr = Graphics.FromImage(bmp))
+                {
+                    gr.DrawImage(origbmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+                }
+
+                entry.Width = (ushort)bmp.Width;
+                entry.Height = (ushort)bmp.Height;
+
+                entry.TextureRawData = Texture.FromBitmap(bmp, (TextureFormat)entry.Format, true);
+                entry.TextureSize = (uint)entry.TextureRawData.Length;
                 entry.FileTime = (uint)File.GetLastWriteTime(path).Ticks; // This is right exactly? Not sure, don't think it matters either
 
                 var filenameData = Encoding.GetEncoding(932).GetBytes(entry.InternalFilePath);

@@ -1,4 +1,8 @@
 ﻿// Code from Normmatt's texturipper (with permission)
+// Code from Gericom's EveryFileExplorer with permission
+
+using LibEveryFileExplorer.GFX;
+using LibEveryFileExplorer.IO;
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -20,6 +24,18 @@ namespace ctpktool
             20, 21, 28, 29, 22, 23, 30, 31, 32, 33, 40, 41, 34, 35, 42, 43, 48, 49, 56, 57, 50, 51, 58, 59, 36, 37, 44,
             45, 38, 39, 46, 47, 52, 53, 60, 61, 54, 55, 62, 63
         };
+
+
+        private static readonly int[] Bpp = { 32, 24, 16, 16, 16, 16, 16, 8, 8, 8, 4, 4, 4, 8 };
+
+        private static readonly int[] TileOrder =
+		{
+			 0,  1,   4,  5,
+			 2,  3,   6,  7,
+
+			 8,  9,  12, 13,  
+			10, 11,  14, 15
+		};
 
         public Texture()
         {
@@ -322,6 +338,257 @@ namespace ctpktool
             x |= (x >> 8);
             x |= (x >> 16);
             return (x + 1);
+        }
+
+        public static unsafe byte[] FromBitmap(Bitmap Picture, TextureFormat Format, bool ExactSize = false)
+        {
+            if (ExactSize && ((Picture.Width % 8) != 0 || (Picture.Height % 8) != 0)) return null;
+            int physicalwidth = Picture.Width;
+            int physicalheight = Picture.Height;
+            int ConvWidth = Picture.Width;
+            int ConvHeight = Picture.Height;
+            if (!ExactSize)
+            {
+                ConvWidth = 1 << (int)Math.Ceiling(Math.Log(Picture.Width, 2));
+                ConvHeight = 1 << (int)Math.Ceiling(Math.Log(Picture.Height, 2));
+            }
+            BitmapData d = Picture.LockBits(new Rectangle(0, 0, Picture.Width, Picture.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            uint* res = (uint*)d.Scan0;
+            byte[] result = new byte[ConvWidth * ConvHeight * GetBpp(Format) / 8];
+            int offs = 0;
+            switch (Format)
+            {
+                case TextureFormat.Rgba8:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 64; i++)
+                            {
+                                int x2 = i % 8;
+                                if (x + x2 >= physicalwidth) continue;
+                                int y2 = i / 8;
+                                if (y + y2 >= physicalheight) continue;
+                                int pos = TileOrder[(x2 % 4) + (y2 % 4) * 4] + 16 * (x2 / 4) + 32 * (y2 / 4);
+
+                                if ((y + y2) * d.Stride / 4 + x + x2 > d.Height * d.Stride)
+                                {
+                                    Console.WriteLine("{0} > {1} overflow", (y + y2) * d.Stride / 4 + x + x2, d.Height * d.Stride);
+                                    Environment.Exit(1);
+                                }
+
+                                Color c = Color.FromArgb((int)res[(y + y2) * d.Stride / 4 + x + x2]);
+                                
+                                if (c == Color.FromArgb(0,0,0,0))
+                                {
+                                    c = Color.FromArgb(0, 0xff, 0xff, 0xff);
+                                }
+
+                                result[offs + pos * 4 + 0] = c.A;
+                                result[offs + pos * 4 + 1] = c.B;
+                                result[offs + pos * 4 + 2] = c.G;
+                                result[offs + pos * 4 + 3] = c.R;
+                            }
+                            offs += 64 * 4;
+                        }
+                    }
+                    break;
+                case TextureFormat.Rgb8:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 64; i++)
+                            {
+                                int x2 = i % 8;
+                                if (x + x2 >= physicalwidth) continue;
+                                int y2 = i / 8;
+                                if (y + y2 >= physicalheight) continue;
+                                int pos = TileOrder[x2 % 4 + y2 % 4 * 4] + 16 * (x2 / 4) + 32 * (y2 / 4);
+                                Color c = Color.FromArgb((int)res[(y + y2) * d.Stride / 4 + x + x2]);
+                                result[offs + pos * 3 + 0] = c.B;
+                                result[offs + pos * 3 + 1] = c.G;
+                                result[offs + pos * 3 + 2] = c.R;
+                            }
+                            offs += 64 * 3;
+                        }
+                    }
+                    break;
+                case TextureFormat.Rgb565:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 64; i++)
+                            {
+                                int x2 = i % 8;
+                                if (x + x2 >= physicalwidth) continue;
+                                int y2 = i / 8;
+                                if (y + y2 >= physicalheight) continue;
+                                int pos = TileOrder[x2 % 4 + y2 % 4 * 4] + 16 * (x2 / 4) + 32 * (y2 / 4);
+                                IOUtil.WriteU16LE(result, offs + pos * 2, (ushort)GFXUtil.ConvertColorFormat(res[(y + y2) * d.Stride / 4 + x + x2], ColorFormat.ARGB8888, ColorFormat.RGB565)); //GFXUtil.ArgbToRGB565(res[(y + y2) * d.Stride / 4 + x + x2]));
+                            }
+                            offs += 64 * 2;
+                        }
+                    }
+                    break;
+                case TextureFormat.Rgba4:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 64; i++)
+                            {
+                                int x2 = i % 8;
+                                if (x + x2 >= physicalwidth) continue;
+                                int y2 = i / 8;
+                                if (y + y2 >= physicalheight) continue;
+                                int pos = TileOrder[(x2 % 4) + (y2 % 4) * 4] + 16 * (x2 / 4) + 32 * (y2 / 4);
+                                IOUtil.WriteU16LE(result, offs + pos * 2, (ushort)GFXUtil.ConvertColorFormat(res[(y + y2) * d.Stride / 4 + x + x2], ColorFormat.ARGB8888, ColorFormat.RGBA4444));
+                            }
+                            offs += 64 * 2;
+                        }
+                    }
+                    break;
+                case TextureFormat.La8:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 64; i++)
+                            {
+                                int x2 = i % 8;
+                                if (x + x2 >= physicalwidth) continue;
+                                int y2 = i / 8;
+                                if (y + y2 >= physicalheight) continue;
+                                int pos = TileOrder[x2 % 4 + y2 % 4 * 4] + 16 * (x2 / 4) + 32 * (y2 / 4);
+                                Color c = Color.FromArgb((int)res[(y + y2) * d.Stride / 4 + x + x2]);
+
+                                result[offs + pos * 2 + 0] = c.A;
+                                result[offs + pos * 2 + 1] = c.R;
+                            }
+                            offs += 64 * 2;
+                        }
+                    }
+                    break;
+                case TextureFormat.Hilo8:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 64; i++)
+                            {
+                                int x2 = i % 8;
+                                if (x + x2 >= physicalwidth) continue;
+                                int y2 = i / 8;
+                                if (y + y2 >= physicalheight) continue;
+                                int pos = TileOrder[x2 % 4 + y2 % 4 * 4] + 16 * (x2 / 4) + 32 * (y2 / 4);
+                                Color c = Color.FromArgb((int)res[(y + y2) * d.Stride / 4 + x + x2]);
+
+                                result[offs + pos * 2 + 0] = c.R;
+                                result[offs + pos * 2 + 1] = c.G;
+                            }
+                            offs += 64 * 2;
+                        }
+                    }
+                    break;
+                case TextureFormat.L8:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 64; i++)
+                            {
+                                int x2 = i % 8;
+                                if (x + x2 >= physicalwidth) continue;
+                                int y2 = i / 8;
+                                if (y + y2 >= physicalheight) continue;
+                                int pos = TileOrder[x2 % 4 + y2 % 4 * 4] + 16 * (x2 / 4) + 32 * (y2 / 4);
+                                Color c = Color.FromArgb((int)res[(y + y2) * d.Stride / 4 + x + x2]);
+
+                                result[offs + pos * 1 + 0] = c.R;
+                            }
+                            offs += 64 * 1;
+                        }
+                    }
+                    break;
+                case TextureFormat.A8:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 64; i++)
+                            {
+                                int x2 = i % 8;
+                                if (x + x2 >= physicalwidth) continue;
+                                int y2 = i / 8;
+                                if (y + y2 >= physicalheight) continue;
+                                int pos = TileOrder[x2 % 4 + y2 % 4 * 4] + 16 * (x2 / 4) + 32 * (y2 / 4);
+                                Color c = Color.FromArgb((int)res[(y + y2) * d.Stride / 4 + x + x2]);
+
+                                result[offs + pos * 1 + 0] = c.A;
+                            }
+                            offs += 64 * 1;
+                        }
+                    }
+                    break;
+                case TextureFormat.Etc1:
+                case TextureFormat.Etc1A4:
+                    for (int y = 0; y < ConvHeight; y += 8)
+                    {
+                        for (int x = 0; x < ConvWidth; x += 8)
+                        {
+                            for (int i = 0; i < 8; i += 4)
+                            {
+                                for (int j = 0; j < 8; j += 4)
+                                {
+                                    if (Format == TextureFormat.Etc1A4)
+                                    {
+                                        ulong alpha = 0;
+                                        int iiii = 0;
+                                        for (int xx = 0; xx < 4; xx++)
+                                        {
+                                            for (int yy = 0; yy < 4; yy++)
+                                            {
+                                                uint color;
+                                                if (x + j + xx >= physicalwidth) color = 0x00FFFFFF;
+                                                else if (y + i + yy >= physicalheight) color = 0x00FFFFFF;
+                                                else color = res[((y + i + yy) * (d.Stride / 4)) + x + j + xx];
+                                                uint a = color >> 24;
+                                                a >>= 4;
+                                                alpha |= (ulong)a << (iiii * 4);
+                                                iiii++;
+                                            }
+                                        }
+                                        IOUtil.WriteU64LE(result, offs, alpha);
+                                        offs += 8;
+                                    }
+                                    Color[] pixels = new Color[4 * 4];
+                                    for (int yy = 0; yy < 4; yy++)
+                                    {
+                                        for (int xx = 0; xx < 4; xx++)
+                                        {
+                                            if (x + j + xx >= physicalwidth) pixels[yy * 4 + xx] = Color.Transparent;
+                                            else if (y + i + yy >= physicalheight) pixels[yy * 4 + xx] = Color.Transparent;
+                                            else pixels[yy * 4 + xx] = Color.FromArgb((int)res[((y + i + yy) * (d.Stride / 4)) + x + j + xx]);
+                                        }
+                                    }
+                                    IOUtil.WriteU64LE(result, offs, ETC1.GenETC1(pixels));
+                                    offs += 8;
+                                }
+                            }
+                        }
+                    }
+                    break;
+                default:
+                    throw new NotImplementedException("This format is not implemented yet.");
+            }
+            return result;
+        }
+
+        public static int GetBpp(TextureFormat Format)
+        {
+            return Texture.Bpp[(uint)Format];
         }
     }
 }

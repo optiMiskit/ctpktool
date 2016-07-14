@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Linq;
 
 namespace ctpktool
 {
@@ -28,7 +29,43 @@ namespace ctpktool
         {
             writer.Write(new byte[0x20]); // Write 0x20 bytes of blank data so we can come back to it later
 
+            // Make sure all sections have a unique IndexA
+            // If not, give them one
+            _entries.Sort((x, y) => x.FileIndexA.CompareTo(y.FileIndexA));
+            var fileIndexes = _entries.Select(x => x.FileIndexA);
+            int nextFileIndex = 0;
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                if(_entries[i].FileIndexA == -1)
+                {
+                    while(fileIndexes.Contains(nextFileIndex))
+                    {
+                        nextFileIndex++;
+                    }
+
+                    _entries[i].FileIndexA = nextFileIndex;
+                }
+            }
+
+            // Do the same as above, but for FileIndexB
+            _entries.Sort((x, y) => x.FileIndexB.CompareTo(y.FileIndexB));
+            fileIndexes = _entries.Select(x => x.FileIndexB);
+            nextFileIndex = 0;
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                if (_entries[i].FileIndexB == -1)
+                {
+                    while (fileIndexes.Contains(nextFileIndex))
+                    {
+                        nextFileIndex++;
+                    }
+
+                    _entries[i].FileIndexB = nextFileIndex;
+                }
+            }
+
             // Section 1
+            _entries.Sort((x, y) => x.FileIndexA.CompareTo(y.FileIndexA));
             foreach (var entry in _entries)
             {
                 entry.Write(writer);
@@ -58,15 +95,16 @@ namespace ctpktool
             writer.Write(new byte[4 - writer.BaseStream.Length%4]); // Pad the filename section to the nearest 4th byte
 
             // Section 4
+            _entries.Sort((x, y) => x.FileIndexB.CompareTo(y.FileIndexB));
             HashSectionOffset = (uint)writer.BaseStream.Length;
-            for (int i = 0; i < _entries.Count; i++)
+            foreach (var entry in _entries)
             {
-                var entry = _entries[i];
                 writer.Write(entry.FilenameHash);
-                writer.Write(i);
+                writer.Write(entry.FileIndexA);
             }
 
             // Section 5
+            _entries.Sort((x, y) => x.FileIndexA.CompareTo(y.FileIndexA));
             TextureInfoSection = (uint)writer.BaseStream.Length;
             foreach (var entry in _entries)
             {
@@ -119,7 +157,7 @@ namespace ctpktool
 
             for (int i = 0; i < file._entries.Count; i++)
             {
-                file._entries[i].BitmapSizeOffset = (uint)((file._entries.Count + 1)*8 + (i*8));
+                file._entries[i].BitmapSizeOffset = (uint)((file._entries.Count + 1)*8 + i);
             }
 
             var outputFilename = folder + ".ctpk";
@@ -168,6 +206,7 @@ namespace ctpktool
                     reader.BaseStream.Seek(0x20 * (i + 1), SeekOrigin.Begin);
 
                     CTPKEntry entry = CTPKEntry.Read(reader);
+                    entry.FileIndexA = file._entries.Count;
                     file._entries.Add(entry);
                 }
 
@@ -178,9 +217,20 @@ namespace ctpktool
                 }
 
                 // Section 4
+                reader.BaseStream.Seek(file.HashSectionOffset, SeekOrigin.Begin);
                 for (int i = 0; i < file.NumberOfTextures; i++)
                 {
                     file._entries[i].FilenameHash = reader.ReadUInt32();
+
+                    int idx = reader.ReadInt32();
+                    if (idx < file._entries.Count)
+                    {
+                        file._entries[idx].FileIndexB = i;
+                    }
+                    else
+                    {
+                        Console.WriteLine("ERROR(?): Found hash entry without a matching file entry");
+                    }
                 }
 
                 // Section 5
