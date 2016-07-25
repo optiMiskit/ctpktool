@@ -1,25 +1,74 @@
 ﻿using System;
 using System.IO;
 
+using CommandLine;
+using CommandLine.Text;
+
 namespace ctpktool
 {
     class Program
     {
         static void Main(string[] args)
         {
-            if (args.Length != 1)
+            var config = new Config();
+
+            var settings = new CommandLine.ParserSettings(true, true, false, Console.Error);
+            var parser = new CommandLine.Parser(settings);
+
+            string inputPath = "", outputPath = "";
+            bool isExtract = false, isRawExtract = false, isCreate = false;
+
+            if (parser.ParseArguments(args, config))
             {
-                Console.WriteLine("usage: {0} input.ctpk/input_folder", AppDomain.CurrentDomain.FriendlyName);
-                Environment.Exit(0);
+                if (!String.IsNullOrWhiteSpace(config.InputFileRaw))
+                {
+                    inputPath = config.InputFileRaw;
+                    isRawExtract = true;
+                    isExtract = true;
+                }
+                else if (!String.IsNullOrWhiteSpace(config.InputFile))
+                {
+                    inputPath = config.InputFile;
+                    isExtract = true;
+                }
+                else if (!String.IsNullOrWhiteSpace(config.InputFolder))
+                {
+                    inputPath = config.InputFolder;
+                    isCreate = true;
+                }
+
+                if (!String.IsNullOrWhiteSpace(config.OutputPath))
+                {
+                    outputPath = config.OutputPath;
+                }
+                else
+                {
+                    if (isCreate)
+                    {
+                        outputPath = inputPath + ".ctpk";
+                    }
+                    else
+                    {
+                        string basePath = Path.GetDirectoryName(inputPath);
+                        string baseFilename = Path.GetFileNameWithoutExtension(inputPath);
+
+                        if (!String.IsNullOrWhiteSpace(basePath))
+                        {
+                            baseFilename = Path.Combine(basePath, baseFilename);
+                        }
+
+                        outputPath = baseFilename;
+                    }
+                }
             }
 
-            if (Directory.Exists(args[0]))
+            if (isCreate)
             {
-                Ctpk.Create(args[0]);
+                Ctpk.Create(inputPath, outputPath);
             }
-            else if (File.Exists(args[0]))
+            else if (isExtract)
             {
-                Ctpk.Read(args[0]);
+                Ctpk.Read(inputPath, outputPath, isRawExtract);
             }
             else
             {

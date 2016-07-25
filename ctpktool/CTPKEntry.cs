@@ -24,10 +24,8 @@ namespace ctpktool
         public uint TextureOffset;
         [XmlElement("Format")]
         public uint Format;
-        [XmlIgnore]
         [XmlElement("Width")]
         public ushort Width;
-        [XmlIgnore]
         [XmlElement("Height")]
         public ushort Height;
         [XmlElement("MipLevel")]
@@ -64,6 +62,9 @@ namespace ctpktool
 
         [XmlElement("FileIndexB")]
         public int FileIndexB = -1;
+
+        [XmlElement("Raw")]
+        public bool Raw = false;
 
         public Bitmap GetBitmap()
         {
@@ -143,7 +144,7 @@ namespace ctpktool
             return entry;
         }
 
-        public void ToFile(string outputFolder)
+        public void ToFile(string outputFolder, bool isRawExtract = false)
         {
             string dir = Path.GetDirectoryName(InternalFilePath);
             string filename = Path.GetFileNameWithoutExtension(InternalFilePath);
@@ -164,7 +165,17 @@ namespace ctpktool
                     Directory.CreateDirectory(dir);
             }
 
-            FilePath = filename + ".png";
+            FilePath = filename;
+
+            if(isRawExtract)
+            {
+                FilePath += ".raw";
+                Raw = true;
+            }
+            else
+            {
+                FilePath += ".png";
+            }
 
             var outputPath = filename;
             if (!String.IsNullOrWhiteSpace(outputFolder))
@@ -176,8 +187,17 @@ namespace ctpktool
                 serializer.Serialize(writer, this);
             }
 
-            // Export image data to file here?
-            GetBitmap().Save(outputPath + ".png");
+            if (isRawExtract)
+            {
+                using (BinaryWriter writer = new BinaryWriter(File.Open(outputPath + ".raw", FileMode.Create)))
+                {
+                    writer.Write(TextureRawData);
+                }
+            }
+            else
+            {
+                GetBitmap().Save(outputPath + ".png");
+            }
         }
 
         public static CTPKEntry FromFile(string filename, string foldername)
@@ -195,15 +215,10 @@ namespace ctpktool
 
                 Console.WriteLine("Reading {0}...", entry.FilePath);
 
-                // Import image file
-                entry._textureData = new Texture();
-
                 var path = entry.FilePath;
 
                 if (!String.IsNullOrWhiteSpace(foldername))
                     path = Path.Combine(foldername, path);
-
-                var origbmp = Bitmap.FromFile(path);
 
                 /*
                 var pixelSize = 3;
@@ -236,49 +251,64 @@ namespace ctpktool
                  */
 
 
-                var bmpPixelFormat = PixelFormat.Format24bppRgb;
-                if (entry.Format != (uint)TextureFormat.Rgba8
-                    && entry.Format != (uint)TextureFormat.Rgb8
-                    && entry.Format != (uint)TextureFormat.Rgb565
-                    && entry.Format != (uint)TextureFormat.Rgba4
-                    && entry.Format != (uint)TextureFormat.La8
-                    && entry.Format != (uint)TextureFormat.Hilo8
-                    && entry.Format != (uint)TextureFormat.L8
-                    && entry.Format != (uint)TextureFormat.A8
-                    && entry.Format != (uint)TextureFormat.Etc1
-                    && entry.Format != (uint)TextureFormat.Etc1A4)
+                if (entry.Raw)
                 {
-                    // Set everything that isn't one of the normal formats to Rgba8
-                    entry.Format = (uint)TextureFormat.Rgba8;
-                    bmpPixelFormat = PixelFormat.Format32bppArgb;
-                    entry.HasAlpha = true;
-                }
-                else if (entry.Format == (uint)TextureFormat.Rgba8 || entry.Format == (uint)TextureFormat.Rgba4 || entry.Format == (uint)TextureFormat.La8 || entry.Format == (uint)TextureFormat.A8)
-                {
-                    bmpPixelFormat = PixelFormat.Format32bppArgb;
-                    entry.HasAlpha = true;
-                }
-                else if (entry.Format == (uint)TextureFormat.Etc1A4)
-                {
-                    bmpPixelFormat = PixelFormat.Format32bppArgb;
-                    entry.HasAlpha = true;
+                    using (BinaryReader bmp = new BinaryReader(File.Open(path, FileMode.Open)))
+                    {
+                        entry.TextureRawData = bmp.ReadBytes((int)bmp.BaseStream.Length);
+                    }
                 }
                 else
                 {
-                    bmpPixelFormat = PixelFormat.Format24bppRgb;
-                    entry.HasAlpha = false;
+                    // Import image file
+                    entry._textureData = new Texture();
+                    var origbmp = Bitmap.FromFile(path);
+
+                    var bmpPixelFormat = PixelFormat.Format24bppRgb;
+                    if (entry.Format != (uint)TextureFormat.Rgba8
+                        && entry.Format != (uint)TextureFormat.Rgb8
+                        && entry.Format != (uint)TextureFormat.Rgb565
+                        && entry.Format != (uint)TextureFormat.Rgba4
+                        && entry.Format != (uint)TextureFormat.La8
+                        && entry.Format != (uint)TextureFormat.Hilo8
+                        && entry.Format != (uint)TextureFormat.L8
+                        && entry.Format != (uint)TextureFormat.A8
+                        && entry.Format != (uint)TextureFormat.Etc1
+                        && entry.Format != (uint)TextureFormat.Etc1A4)
+                    {
+                        // Set everything that isn't one of the normal formats to Rgba8
+                        entry.Format = (uint)TextureFormat.Rgba8;
+                        bmpPixelFormat = PixelFormat.Format32bppArgb;
+                        entry.HasAlpha = true;
+                    }
+                    else if (entry.Format == (uint)TextureFormat.Rgba8 || entry.Format == (uint)TextureFormat.Rgba4 || entry.Format == (uint)TextureFormat.La8 || entry.Format == (uint)TextureFormat.A8)
+                    {
+                        bmpPixelFormat = PixelFormat.Format32bppArgb;
+                        entry.HasAlpha = true;
+                    }
+                    else if (entry.Format == (uint)TextureFormat.Etc1A4)
+                    {
+                        bmpPixelFormat = PixelFormat.Format32bppArgb;
+                        entry.HasAlpha = true;
+                    }
+                    else
+                    {
+                        bmpPixelFormat = PixelFormat.Format24bppRgb;
+                        entry.HasAlpha = false;
+                    }
+
+                    var bmp = new Bitmap(origbmp.Width, origbmp.Height, bmpPixelFormat);
+                    using (Graphics gr = Graphics.FromImage(bmp))
+                    {
+                        gr.DrawImage(origbmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+                    }
+
+                    entry.Width = (ushort)bmp.Width;
+                    entry.Height = (ushort)bmp.Height;
+
+                    entry.TextureRawData = Texture.FromBitmap(bmp, (TextureFormat)entry.Format, true);
                 }
 
-                var bmp = new Bitmap(origbmp.Width, origbmp.Height, bmpPixelFormat);
-                using (Graphics gr = Graphics.FromImage(bmp))
-                {
-                    gr.DrawImage(origbmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
-                }
-
-                entry.Width = (ushort)bmp.Width;
-                entry.Height = (ushort)bmp.Height;
-
-                entry.TextureRawData = Texture.FromBitmap(bmp, (TextureFormat)entry.Format, true);
                 entry.TextureSize = (uint)entry.TextureRawData.Length;
                 entry.FileTime = (uint)File.GetLastWriteTime(path).Ticks; // This is right exactly? Not sure, don't think it matters either
 
